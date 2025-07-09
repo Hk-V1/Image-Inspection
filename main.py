@@ -394,7 +394,7 @@ def upload_and_evaluate_page():
         
         with col1:
             st.subheader("Uploaded Image")
-            st.image(image, caption="Rice grains to evaluate", use_column_width=True)
+            st.image(image, caption="Rice grains to evaluate", use_container_width=True)
         
         with col2:
             st.subheader("Evaluation")
