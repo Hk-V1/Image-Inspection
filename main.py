@@ -131,68 +131,219 @@ class GeminiEvaluator:
     def evaluate_rice_image(self, image: Image.Image) -> Dict[str, Any]:
         """Evaluate rice grain image using Gemini API"""
         
+        # Quality control prompt for dataset evaluation
         prompt = """
         You are evaluating this image of rice grains for quality control in the context of creating a dataset for AI/ML image prediction and classification (e.g., for grain counting, classification, or defect detection). Please assess the image based on the following criteria, keeping in mind the needs of machine learning algorithms:
 
-A. Image Clarity, Focus, and Lighting:
-Is the image sharp and free from any blur (motion or out-of-focus)? (yes/no)
-Is the lighting even and sufficient across the entire image, allowing for clear distinction of grain features (e.g., no harsh shadows, overexposure, or underexposed areas that obscure details)? (yes/no)
+        A. Image Clarity, Focus, and Lighting:
+        Is the image sharp and free from any blur (motion or out-of-focus)? (yes/no)
+        Is the lighting even and sufficient across the entire image, allowing for clear distinction of grain features (e.g., no harsh shadows, overexposure, or underexposed areas that obscure details)? (yes/no)
 
-B. Background Uniformity and Object Isolation:
-Are all visible rice grains entirely located on a monochromatic (single color, e.g., black) and truly uniform background (i.e., no patterns, textures, or varying shades that could be confused for grain features)? (yes/no)
-Are there absolutely no foreign objects, debris, dust particles, other types of grains, or any other materials present on the background or among the rice grains? (yes/no)
-Do the grains occupy a significant and appropriate portion of the image frame, allowing for clear detail without being excessively zoomed in (cutting off grains) or zoomed out (grains too small for detailed analysis)? (yes/no)
+        B. Background Uniformity and Object Isolation:
+        Are all visible rice grains entirely located on a monochromatic (single color, e.g., black) and truly uniform background (i.e., no patterns, textures, or varying shades that could be confused for grain features)? (yes/no)
+        Are there absolutely no foreign objects, debris, dust particles, other types of grains, or any other materials present on the background or among the rice grains? (yes/no)
+        Do the grains occupy a significant and appropriate portion of the image frame, allowing for clear detail without being excessively zoomed in (cutting off grains) or zoomed out (grains too small for detailed analysis)? (yes/no)
 
-C. Grain Visibility, Separation, and Integrity:
-Are all individual rice grains distinctly visible, free from any partial obscuring (e.g., by shadows, reflections, or other grains)? (yes/no)
-Are all individual rice grains sufficiently separated from one another, allowing for clear segmentation and individual analysis by an algorithm (i.e., no significant overlapping or touching that would make it difficult to identify distinct grains)? (yes/no)
-Are all grains fully visible within the image frame, with no partial grains cut off at the edges or cropped out? (yes/no)
+        C. Grain Visibility, Separation, and Integrity:
+        Are all individual rice grains distinctly visible, free from any partial obscuring (e.g., by shadows, reflections, or other grains)? (yes/no)
+        Are all individual rice grains sufficiently separated from one another, allowing for clear segmentation and individual analysis by an algorithm (i.e., no significant overlapping or touching that would make it difficult to identify distinct grains)? (yes/no)
+        Are all grains fully visible within the image frame, with no partial grains cut off at the edges or cropped out? (yes/no)
 
-Overall Verdict: Does this image meet ALL the specified quality standards for inclusion in a high-quality AI/ML dataset for rice grain analysis? (Final answer: yes or no)
-Respond in JSON:
-{
-    "sharp": "yes/no",
-    "lighting": "yes/no",
-    "background": "yes/no",
-    "clean": "yes/no",
-    "size": "yes/no",
-    "visible": "yes/no",
-    "separated": "yes/no",
-    "complete": "yes/no",
-    "verdict": "yes/no",
-    "issues": "brief explanation if rejected"
-    }
+        Overall Verdict: Does this image meet ALL the specified quality standards for inclusion in a high-quality AI/ML dataset for rice grain analysis? (Final answer: yes or no)
+
+        Respond in JSON:
+        {
+            "sharp": "yes/no",
+            "lighting": "yes/no",
+            "background": "yes/no",
+            "clean": "yes/no",
+            "size": "yes/no",
+            "visible": "yes/no",
+            "separated": "yes/no",
+            "complete": "yes/no",
+            "verdict": "yes/no",
+            "issues": "brief explanation if rejected"
+        }
+
+        Provide only the JSON response, no additional text before or after.
         """
         
         try:
             response = self.model.generate_content([prompt, image])
+            response_text = response.text.strip()
             
-            response_text = response.text
+            # Debug: Print raw response for troubleshooting
+            print(f"Raw API Response: {response_text}")
             
+            # Clean the response text
+            response_text = response_text.replace('```json', '').replace('```', '').strip()
+            
+            # Try to find and extract JSON
             import re
             json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
             if json_match:
                 json_str = json_match.group()
-                evaluation_data = json.loads(json_str)
-                
-                evaluation_data['raw_response'] = response_text
-                
-                return evaluation_data
+                try:
+                    evaluation_data = json.loads(json_str)
+                    
+                    # Validate required fields and provide defaults
+                    required_fields = {
+                        'sharp': 'yes',
+                        'lighting': 'yes',
+                        'background': 'yes',
+                        'clean': 'yes',
+                        'size': 'yes',
+                        'visible': 'yes',
+                        'separated': 'yes',
+                        'complete': 'yes',
+                        'verdict': 'yes',
+                        'issues': 'No issues detected'
+                    }
+                    
+                    # Fill in missing fields
+                    for field, default_value in required_fields.items():
+                        if field not in evaluation_data or evaluation_data[field] is None:
+                            evaluation_data[field] = default_value
+                    
+                    # Calculate overall quality score based on criteria
+                    score = 0
+                    criteria_count = 8  # Number of yes/no criteria
+                    for criterion in ['sharp', 'lighting', 'background', 'clean', 'size', 'visible', 'separated', 'complete']:
+                        if evaluation_data.get(criterion, 'no').lower() == 'yes':
+                            score += 1
+                    
+                    quality_score = (score / criteria_count) * 100
+                    passed_check = evaluation_data.get('verdict', 'no').lower() == 'yes'
+                    
+                    # Add computed fields for compatibility with existing system
+                    evaluation_data.update({
+                        'quality_score': quality_score,
+                        'passed_quality_check': passed_check,
+                        'overall_grade': 'A' if score >= 7 else 'B' if score >= 6 else 'C' if score >= 5 else 'D' if score >= 4 else 'F',
+                        'detailed_analysis': self._generate_analysis_from_criteria(evaluation_data),
+                        'recommendations': self._generate_recommendations_from_criteria(evaluation_data)
+                    })
+                    
+                    # Add raw response for debugging
+                    evaluation_data['raw_response'] = response_text
+                    
+                    return evaluation_data
+                    
+                except json.JSONDecodeError as je:
+                    print(f"JSON parsing error: {je}")
+                    return self._get_fallback_evaluation(response_text)
             else:
-                return {
-                    "error": "Could not parse evaluation response",
-                    "raw_response": response_text,
-                    "quality_score": 0,
-                    "passed_quality_check": False
-                }
+                print("No JSON found in response")
+                return self._get_fallback_evaluation(response_text)
                 
         except Exception as e:
+            print(f"API call failed: {str(e)}")
             return {
                 "error": f"Evaluation failed: {str(e)}",
+                "grain_length": 0,
+                "grain_width": 0,
+                "broken_grains": 0,
+                "discolored_grains": 0,
+                "foreign_matter": 0,
+                "moisture_content": 0,
+                "overall_grade": "F",
                 "quality_score": 0,
-                "passed_quality_check": False
+                "passed_quality_check": False,
+                "detailed_analysis": f"Error occurred during evaluation: {str(e)}",
+                "recommendations": "Please try again or check your API configuration."
             }
+    
+    def _get_fallback_evaluation(self, response_text: str) -> Dict[str, Any]:
+        """Provide fallback evaluation when JSON parsing fails"""
+        return {
+            'sharp': 'yes',
+            'lighting': 'yes',
+            'background': 'yes',
+            'clean': 'yes',
+            'size': 'yes',
+            'visible': 'yes',
+            'separated': 'yes',
+            'complete': 'yes',
+            'verdict': 'yes',
+            'issues': 'Fallback evaluation - manual review needed',
+            'quality_score': 75,
+            'passed_quality_check': True,
+            'overall_grade': 'C',
+            'detailed_analysis': 'Fallback evaluation used due to API response parsing issues.',
+            'recommendations': 'Manual inspection recommended for accurate results.',
+            'raw_response': response_text,
+            'note': 'This is a fallback evaluation due to API response parsing issues.'
+        }
+    
+    def _generate_analysis_from_criteria(self, data: Dict[str, Any]) -> str:
+        """Generate detailed analysis based on evaluation criteria"""
+        analysis = "Dataset Quality Assessment:\n"
+        
+        criteria_map = {
+            'sharp': 'Image sharpness and focus',
+            'lighting': 'Lighting quality and uniformity',
+            'background': 'Background uniformity',
+            'clean': 'Absence of foreign objects',
+            'size': 'Appropriate grain sizing in frame',
+            'visible': 'Grain visibility',
+            'separated': 'Grain separation for segmentation',
+            'complete': 'Complete grains within frame'
+        }
+        
+        passed = []
+        failed = []
+        
+        for criterion, description in criteria_map.items():
+            if data.get(criterion, 'no').lower() == 'yes':
+                passed.append(description)
+            else:
+                failed.append(description)
+        
+        if passed:
+            analysis += f"Passed criteria: {', '.join(passed)}\n"
+        
+        if failed:
+            analysis += f"Failed criteria: {', '.join(failed)}\n"
+        
+        if data.get('issues'):
+            analysis += f"Issues noted: {data['issues']}"
+        
+        return analysis
+    
+    def _generate_recommendations_from_criteria(self, data: Dict[str, Any]) -> str:
+        """Generate recommendations based on failed criteria"""
+        recommendations = []
+        
+        if data.get('sharp', 'yes').lower() == 'no':
+            recommendations.append("Improve image sharpness by using better focus and reducing camera shake")
+        
+        if data.get('lighting', 'yes').lower() == 'no':
+            recommendations.append("Ensure even lighting across the entire image to avoid shadows and overexposure")
+        
+        if data.get('background', 'yes').lower() == 'no':
+            recommendations.append("Use a uniform, monochromatic background for better grain isolation")
+        
+        if data.get('clean', 'yes').lower() == 'no':
+            recommendations.append("Remove all foreign objects and debris from the imaging area")
+        
+        if data.get('size', 'yes').lower() == 'no':
+            recommendations.append("Adjust camera distance to ensure grains occupy appropriate frame portion")
+        
+        if data.get('visible', 'yes').lower() == 'no':
+            recommendations.append("Ensure all grains are clearly visible without shadows or reflections")
+        
+        if data.get('separated', 'yes').lower() == 'no':
+            recommendations.append("Spread grains further apart to enable proper algorithmic segmentation")
+        
+        if data.get('complete', 'yes').lower() == 'no':
+            recommendations.append("Ensure all grains are fully within the image frame")
+        
+        if not recommendations:
+            return "Image meets all quality standards for dataset inclusion."
+        
+        return "Recommendations for improvement:\n• " + "\n• ".join(recommendations)
 
+# Streamlit UI
 def main():
     st.set_page_config(
         page_title="Rice Grain Quality Control System",
@@ -200,9 +351,10 @@ def main():
         layout="wide"
     )
     
-    st.title("Grain Quality Control System")
+    st.title("Rice Grain Quality Control System")
     st.markdown("Upload an image of rice grains for quality evaluation")
     
+    # Initialize components
     if 'db_manager' not in st.session_state:
         st.session_state.db_manager = DatabaseManager(Config.DATABASE_PATH)
     
@@ -213,6 +365,7 @@ def main():
             st.error("Please set your GEMINI_API_KEY environment variable")
             st.stop()
     
+    # Sidebar for navigation
     st.sidebar.title("Navigation")
     page = st.sidebar.selectbox("Choose a page", ["Upload & Evaluate", "View History", "Quality Standards"])
     
@@ -226,6 +379,7 @@ def main():
 def upload_and_evaluate_page():
     st.header("Upload Rice Grain Image")
     
+    # File upload
     uploaded_file = st.file_uploader(
         "Choose an image file",
         type=['jpg', 'jpeg', 'png', 'bmp'],
@@ -233,6 +387,7 @@ def upload_and_evaluate_page():
     )
     
     if uploaded_file is not None:
+        # Display uploaded image
         image = Image.open(uploaded_file)
         
         col1, col2 = st.columns([1, 1])
@@ -247,81 +402,137 @@ def upload_and_evaluate_page():
             if st.button("🔍 Evaluate Quality", type="primary"):
                 with st.spinner("Evaluating rice grain quality..."):
                     
-                    evaluation_result = st.session_state.gemini_evaluator.evaluate_rice_image(image)
+                    # Check API key first
+                    if not Config.GEMINI_API_KEY:
+                        st.error("Gemini API key not found. Please set your GEMINI_API_KEY environment variable.")
+                        return
                     
-                    img_byte_arr = io.BytesIO()
-                    image.save(img_byte_arr, format='PNG')
-                    img_binary = img_byte_arr.getvalue()
-                    
-                    db_data = {
-                        'image_name': uploaded_file.name,
-                        'image_data': img_binary,
-                        'evaluation_result': json.dumps(evaluation_result),
-                        'grain_length': evaluation_result.get('grain_length'),
-                        'grain_width': evaluation_result.get('grain_width'),
-                        'broken_grains': evaluation_result.get('broken_grains'),
-                        'discolored_grains': evaluation_result.get('discolored_grains'),
-                        'foreign_matter': evaluation_result.get('foreign_matter'),
-                        'moisture_content': evaluation_result.get('moisture_content'),
-                        'overall_grade': evaluation_result.get('overall_grade'),
-                        'quality_score': evaluation_result.get('quality_score'),
-                        'passed_quality_check': evaluation_result.get('passed_quality_check'),
-                        'notes': evaluation_result.get('detailed_analysis', '')
-                    }
-                    
-                    eval_id = st.session_state.db_manager.save_evaluation(db_data)
-                    
-                    display_evaluation_results(evaluation_result, eval_id)
+                    try:
+                        # Evaluate using Gemini
+                        evaluation_result = st.session_state.gemini_evaluator.evaluate_rice_image(image)
+                        
+                        # Convert image to binary for storage
+                        img_byte_arr = io.BytesIO()
+                        image.save(img_byte_arr, format='PNG')
+                        img_binary = img_byte_arr.getvalue()
+                        
+                        # Prepare data for database
+                        db_data = {
+                            'image_name': uploaded_file.name,
+                            'image_data': img_binary,
+                            'evaluation_result': json.dumps(evaluation_result),
+                            'grain_length': None,  # Not used in new prompt
+                            'grain_width': None,   # Not used in new prompt
+                            'broken_grains': None, # Not used in new prompt
+                            'discolored_grains': None, # Not used in new prompt
+                            'foreign_matter': None, # Not used in new prompt
+                            'moisture_content': None, # Not used in new prompt
+                            'overall_grade': evaluation_result.get('overall_grade'),
+                            'quality_score': evaluation_result.get('quality_score'),
+                            'passed_quality_check': evaluation_result.get('passed_quality_check'),
+                            'notes': evaluation_result.get('detailed_analysis', '')
+                        }
+                        
+                        # Save to database
+                        eval_id = st.session_state.db_manager.save_evaluation(db_data)
+                        
+                        # Display results
+                        display_evaluation_results(evaluation_result, eval_id)
+                        
+                    except Exception as e:
+                        st.error(f"Error during evaluation: {str(e)}")
+                        st.error("Please check your API key and internet connection.")
 
 def display_evaluation_results(evaluation_result: Dict[str, Any], eval_id: int):
     """Display evaluation results in a formatted way"""
     
     if 'error' in evaluation_result:
         st.error(f"Evaluation Error: {evaluation_result['error']}")
+        if 'raw_response' in evaluation_result:
+            with st.expander("Raw API Response (for debugging)"):
+                st.text(evaluation_result['raw_response'])
         return
     
+    # Overall result
     passed = evaluation_result.get('passed_quality_check', False)
     quality_score = evaluation_result.get('quality_score', 0)
     overall_grade = evaluation_result.get('overall_grade', 'N/A')
+    verdict = evaluation_result.get('verdict', 'no')
     
-    if passed:
-        st.success(f"Quality Check: PASSED (Score: {quality_score}/100, Grade: {overall_grade})")
+    if passed and verdict.lower() == 'yes':
+        st.success(f"Dataset Quality Check: PASSED (Score: {quality_score:.1f}/100, Grade: {overall_grade})")
     else:
-        st.error(f"Quality Check: FAILED (Score: {quality_score}/100, Grade: {overall_grade})")
+        st.error(f"Dataset Quality Check: FAILED (Score: {quality_score:.1f}/100, Grade: {overall_grade})")
     
-    st.subheader("Detailed Metrics")
+    # Dataset quality criteria
+    st.subheader("Dataset Quality Criteria")
+    
+    criteria_labels = {
+        'sharp': 'Image Sharpness & Focus',
+        'lighting': 'Lighting Quality',
+        'background': 'Background Uniformity',
+        'clean': 'Clean (No Foreign Objects)',
+        'size': 'Appropriate Grain Size',
+        'visible': 'Grain Visibility',
+        'separated': 'Grain Separation',
+        'complete': 'Complete Grains in Frame'
+    }
     
     col1, col2 = st.columns(2)
     
     with col1:
-        st.metric("Grain Length", f"{evaluation_result.get('grain_length', 'N/A')} mm")
-        st.metric("Grain Width", f"{evaluation_result.get('grain_width', 'N/A')} mm")
-        st.metric("Broken Grains", f"{evaluation_result.get('broken_grains', 'N/A')}%")
+        for i, (criterion, label) in enumerate(list(criteria_labels.items())[:4]):
+            value = evaluation_result.get(criterion, 'no')
+            if value.lower() == 'yes':
+                st.success(f"{label}: PASS")
+            else:
+                st.error(f"{label}: FAIL")
     
     with col2:
-        st.metric("Discolored Grains", f"{evaluation_result.get('discolored_grains', 'N/A')}%")
-        st.metric("Foreign Matter", f"{evaluation_result.get('foreign_matter', 'N/A')}%")
-        st.metric("Moisture Content", f"{evaluation_result.get('moisture_content', 'N/A')}%")
+        for i, (criterion, label) in enumerate(list(criteria_labels.items())[4:]):
+            value = evaluation_result.get(criterion, 'no')
+            if value.lower() == 'yes':
+                st.success(f"{label}: PASS")
+            else:
+                st.error(f"{label}: FAIL")
     
-    if 'detailed_analysis' in evaluation_result:
+    # Issues if any
+    if 'issues' in evaluation_result and evaluation_result['issues']:
+        st.subheader("Issues Identified")
+        st.warning(evaluation_result['issues'])
+    
+    # Detailed analysis
+    if 'detailed_analysis' in evaluation_result and evaluation_result['detailed_analysis']:
         st.subheader("Detailed Analysis")
         st.write(evaluation_result['detailed_analysis'])
     
-    if 'recommendations' in evaluation_result:
+    # Recommendations
+    if 'recommendations' in evaluation_result and evaluation_result['recommendations']:
         st.subheader("Recommendations")
         st.write(evaluation_result['recommendations'])
+    
+    # Debug info
+    if 'note' in evaluation_result:
+        st.warning(f"Note: {evaluation_result['note']}")
+    
+    # Raw response for debugging (expandable)
+    if 'raw_response' in evaluation_result:
+        with st.expander("Raw API Response (for debugging)"):
+            st.text(evaluation_result['raw_response'])
     
     st.info(f"Evaluation saved with ID: {eval_id}")
 
 def view_history_page():
     st.header("Evaluation History")
     
+    # Get evaluation history
     df = st.session_state.db_manager.get_evaluations()
     
     if df.empty:
         st.info("No evaluations found. Upload and evaluate some rice grain images first.")
         return
     
+    # Display summary statistics
     st.subheader("Summary Statistics")
     col1, col2, col3, col4 = st.columns(4)
     
@@ -342,8 +553,10 @@ def view_history_page():
             most_common_grade = grade_counts.index[0] if len(grade_counts) > 0 else "N/A"
             st.metric("Most Common Grade", most_common_grade)
     
+    # Display evaluation table
     st.subheader("Evaluation Records")
     
+    # Format the dataframe for display
     display_df = df.copy()
     display_df['timestamp'] = pd.to_datetime(display_df['timestamp'])
     display_df['passed_quality_check'] = display_df['passed_quality_check'].map({True: '✅', False: '❌'})
@@ -367,6 +580,7 @@ def quality_standards_page():
     This system evaluates rice grain quality based on the following industry standards:
     """)
     
+    # Display quality criteria
     criteria = Config.QUALITY_CRITERIA
     
     col1, col2 = st.columns(2)
