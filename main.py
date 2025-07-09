@@ -12,7 +12,7 @@ from typing import Dict, Any, Optional
 
 class Config:
     DATABASE_PATH = "rice_quality.db"
-    GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"] 
+    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") 
     
     QUALITY_CRITERIA = {
         "grain_length": {"min": 5.0, "max": 7.0, "unit": "mm"},
