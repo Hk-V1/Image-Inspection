@@ -10,10 +10,11 @@ import pandas as pd
 import os
 from typing import Dict, Any, Optional
 
+GEMINI_API_KEY = "AIzaSyCcPnEEqDzMRz2KGL9xGbyl8y0Z6a8rcls"
 
 class Config:
     DATABASE_PATH = "rice_quality.db"
-    GEMINI_API_KEY = os.getenv("AIzaSyCcPnEEqDzMRz2KGL9xGbyl8y0Z6a8rcls")  
+    GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"] 
     
     QUALITY_CRITERIA = {
         "grain_length": {"min": 5.0, "max": 7.0, "unit": "mm"},
