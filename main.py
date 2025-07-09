@@ -10,8 +10,6 @@ import pandas as pd
 import os
 from typing import Dict, Any, Optional
 
-GEMINI_API_KEY = "AIzaSyCcPnEEqDzMRz2KGL9xGbyl8y0Z6a8rcls"
-
 class Config:
     DATABASE_PATH = "rice_quality.db"
     GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"] 
